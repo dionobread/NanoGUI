@@ -1,5 +1,3 @@
-# NanoGUI
-
 # Divide and Ground: A Lightweight Multi-Agent Framework for GUI Task Execution with Small Vision-Language Models
 
 **Course:** Deep Learning with Language and Vision
