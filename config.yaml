@@ -1,0 +1,28 @@
+# NanoGUI Configuration
+# Uncomment and override any setting to customize.
+
+# Model settings
+# planner_model: "glm-4.6v"
+# grounder_model: "Qwen/Qwen2.5-VL-2B-Instruct"
+# verifier_model: "HuggingFaceTB/SmolVLM-256M-Instruct"
+
+# Device settings
+# device: "cuda"
+# load_in_4bit: true
+
+# Pipeline settings
+# max_steps: 20
+# max_retries: 3
+# step_delay: 0.5
+# verifier_threshold: 5.0
+
+# Action executor
+# action_delay: 0.5
+dry_run: true
+use_real_actions: false
+
+# Screen capture
+# monitor: 1
+
+# Logging
+# log_level: "INFO"

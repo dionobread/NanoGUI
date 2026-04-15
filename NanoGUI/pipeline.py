@@ -26,6 +26,9 @@ from agents.Grounder import GrounderAgent, GroundedAction
 from agents.Verifier import VerifierAgent, VerificationResult
 from models.glm_client import create_glm_client
 from data.test_data_loader import load_test_sample, get_dataset_stats
+from core.screen_capture import capture_screen, get_screen_size
+from core.action_executor import ActionExecutor
+from config import NanoGUIConfig, load_config
 
 
 # Configuration
@@ -36,6 +39,10 @@ class PipelineConfig:
     max_retries: int = 2
     step_delay: float = 0.3
     log_level: str = "INFO"
+    use_real_actions: bool = False
+    dry_run: bool = True
+    action_delay: float = 0.5
+    monitor: int = 1
 
 
 @dataclass
@@ -73,6 +80,7 @@ class NanoGUIPipeline:
         self.planner = None
         self.grounder = None
         self.verifier = None
+        self.executor = None
         self.logger = self._setup_logging()
 
     def _setup_logging(self) -> logging.Logger:
@@ -92,7 +100,13 @@ class NanoGUIPipeline:
         self.planner = PlannerAgent(model_client=self.model_client)
         self.grounder = GrounderAgent(model_client=self.model_client)
         self.verifier = VerifierAgent(model_client=self.model_client)
-        self.logger.info("All agents initialized")
+        self.executor = ActionExecutor(
+            action_delay=self.config.action_delay,
+            dry_run=self.config.dry_run,
+        )
+        mode = "real (dry-run)" if self.config.use_real_actions and self.config.dry_run \
+            else "real" if self.config.use_real_actions else "simulated"
+        self.logger.info("All agents initialized — action mode: %s", mode)
 
     async def execute_task(
         self,
@@ -135,8 +149,10 @@ class NanoGUIPipeline:
                         break
                     continue
 
-                # Simulate action execution (update screenshot for next step)
-                if step_result.action:
+                # Update screenshot for the next step
+                if self.config.use_real_actions:
+                    current_screenshot = capture_screen(self.config.monitor)
+                elif step_result.action:
                     current_screenshot = self._simulate_action(
                         current_screenshot,
                         step_result.action
@@ -174,13 +190,20 @@ class NanoGUIPipeline:
         screenshot: PIL.Image.Image,
         retry_count: int = 0
     ) -> StepResult:
-        """Execute a single step: Ground → Verify."""
+        """Execute a single step: Ground → Execute → Verify."""
         try:
             # Ground the action
             action = await self.grounder.ground(sub_goal=sub_goal, screenshot=screenshot)
 
-            # Simulate execution
-            after_screenshot = self._simulate_action(screenshot, action)
+            # Execute action (real or simulated)
+            if self.config.use_real_actions:
+                width, height = get_screen_size(self.config.monitor)
+                await self.executor.execute_action(action, width, height)
+                # Small delay for the screen to update
+                await asyncio.sleep(self.config.step_delay)
+                after_screenshot = capture_screen(self.config.monitor)
+            else:
+                after_screenshot = self._simulate_action(screenshot, action)
 
             # Verify the action
             verification = await self.verifier.verify(
