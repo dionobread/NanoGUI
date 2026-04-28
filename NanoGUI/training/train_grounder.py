@@ -16,7 +16,7 @@ from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoTok
 from trl import SFTTrainer, SFTConfig
 
 from NanoGUI.agents.base import GrounderConfig
-from NanoGUI.data import load_test_sample
+from NanoGUI.data import load_local_omniact
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,9 @@ def train_grounder(
         bias = "none",
     )
     
-    # Get a train-test split from the dataset (TODO: Do this code)
-    train_dataset, val_dataset = temp #(insert actual train split get code here?)
+    # Get a train-test split from the OmniAct dataset
+    train_dataset = load_local_omniact(split = "train", load_images = True)
+    val_dataset = load_local_omniact(split = "validation", load_images = True)
     
     # Using PEFT, train the model
     model = get_peft_model(model, loraConfig)
@@ -75,7 +76,7 @@ def train_grounder(
     trainer.train()
     
     # Save the model
-    model.save_pretrained("./lora-adapter")
+    model.save_pretrained("./grounder-lora-adapter")
     
     # Alternatively, only save the adapter weights
     # trainer.save_model("./lora-adapter")

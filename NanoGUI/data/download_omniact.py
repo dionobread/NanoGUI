@@ -172,7 +172,7 @@ class OmniActDownloader:
 
         print(f"\nDataset saved to: {self.save_dir}")
 
-    def create_train_val_split(self, dataset: Dataset, val_ratio: float = 0.1):
+    def create_train_val_split_omniact(self, dataset: Dataset, val_ratio: float = 0.1):
         """
         Create a custom train/validation split from the dataset.
 

@@ -453,12 +453,12 @@ class GrounderConfig(AgentConfig):
     """Configuration specific to Grounder agent."""
     # Use smaller model for performance
     model_name: str = "Qwen/Qwen2-VL-2B-Instruct"
-    lora_adapter_path: str | None = None
+    lora_adapter_path: str | None = "./grounder-lora-adapter"
     # added some extra things to configure during training
     load_in_4bit: bool = False
-    lora_r: int = 16
+    lora_r: int = 16  # The paper says 16 for r
     lora_alpha: int = 32
-    lora_target_modules: list[str] = []
+    lora_target_modules: list[str] = ["q_proj", "v_proj", "k_proj", "o_proj"]  # TODO: Double check
 
 
 @dataclass

@@ -14,11 +14,12 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple
 import PIL.Image
+from datasets import Dataset
 
 logger = logging.getLogger(__name__)
 
 
-def load_local_screenspot(
+def load_local_omniact(
     data_dir: str = "./data/omniact",
     split: str = "train",
     sample_idx: int = 0
@@ -27,7 +28,7 @@ def load_local_screenspot(
     Load a single sample from local OmniAct dataset.
 
     Args:
-        data_dir: Path to the ScreenSpot data directory
+        data_dir: Path to the OmniAct data directory
         split: Dataset split to load from (test, train, validation)
         sample_idx: Index of the sample to load
 
@@ -80,15 +81,54 @@ def load_local_screenspot(
         return image, instruction, metadata
 
     except Exception as e:
-        logger.error(f"Error loading local ScreenSpot data: {e}")
+        logger.error(f"Error loading local OmniAct data: {e}")
         return None, None, None
 
+def load_local_omniact(
+    data_dir: str = "./data/omniact",
+    split: str = "train",
+    load_images: bool = True
+) -> Tuple[Optional[Dataset]]:
+    """
+    Load a split of the local OmniAct dataset as a dataset. (For training purposes)
+    
+    Args:
+        data_dir: Full path to retrieve data from
+        split: Which split to retrieve (train, val, etc) (default train)
+        load_images: Whether to attach the images as well (default true)
+    """
+    data_dir = Path(data_dir)
+    annotations_dir = data_dir / "annotations"
+    
+    if splits is None:
+        splits = [
+            p.stem.replace("_annotations", "")
+            for p in annotations_dir.glob("*_annotations.json")
+        ]
+        
+    result = {}
+    for split_name in splits:
+        # Load annotations
+        annotations_path = annotations_dir / f"{split_name}_annotations.json"
+        with open(annotations_path, "r", encoding="utf-8") as f:
+            annotations = json.load(f)
+
+        # Optionally attach PIL Images
+        if load_images:
+            for sample in annotations:
+                if "image_path" in sample:
+                    sample["image"] = PIL.Image.open(sample["image_path"]).copy()
+
+        result[split_name] = Dataset.from_list(annotations)
+
+    return result
+    
 
 def load_test_sample(
     fallback_to_synthetic: bool = True
 ) -> Tuple[PIL.Image.Image, str, dict]:
     """
-    Load a training sample (from local ScreenSpot or fallback).
+    Load a training sample (from local OmniAct or fallback).
 
     This is the recommended function for test scripts.
 
@@ -98,8 +138,8 @@ def load_test_sample(
     Returns:
         Tuple of (image, instruction, metadata)
     """
-    # Try local ScreenSpot first
-    image, instruction, metadata = load_local_screenspot()
+    # Try local OmniAct first
+    image, instruction, metadata = load_local_omniact()
 
     if image is not None:
         return image, instruction, metadata or {}
@@ -131,7 +171,7 @@ def get_dataset_stats(data_dir: str = "./data/screenspot") -> dict:
     Get statistics about the local ScreenSpot dataset.
 
     Args:
-        data_dir: Path to the ScreenSpot data directory
+        data_dir: Path to the OmniAct data directory
 
     Returns:
         Dictionary with dataset statistics
@@ -167,9 +207,9 @@ def get_dataset_stats(data_dir: str = "./data/screenspot") -> dict:
 
 
 # Convenience functions for backward compatibility
-def load_screenspot_sample():
-    """Alias for load_local_screenspot with default parameters."""
-    return load_local_screenspot()
+def load_omniact_sample():
+    """Alias for load_local_omniact with default parameters."""
+    return load_local_omniact()
 
 
 if __name__ == "__main__":
@@ -179,7 +219,7 @@ if __name__ == "__main__":
     # Setup logging
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-    print("Testing ScreenSpot data loader...")
+    print("Testing OmniAct data loader...")
     print("=" * 50)
 
     # Check dataset availability
@@ -199,3 +239,4 @@ if __name__ == "__main__":
     print(f"  Metadata: {metadata}")
 
     print("\nData loader test completed!")
+    
