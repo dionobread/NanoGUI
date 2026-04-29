@@ -453,6 +453,7 @@ class GrounderConfig(AgentConfig):
     """Configuration specific to Grounder agent."""
     # Use smaller model for performance
     model_name: str = "Qwen/Qwen2-VL-2B-Instruct"
+    merge_weights: bool = True
     lora_adapter_path: str | None = "./grounder-lora-adapter"
     # added some extra things to configure during training
     load_in_4bit: bool = False
