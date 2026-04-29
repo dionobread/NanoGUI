@@ -1,12 +1,13 @@
 """
 Unified Training Data Loader for NanoGUI Agents
 
-Provides simple functions to load training data from local OmniAct dataset.
-All training scripts should use this utility for consistent data loading.
+Provides simple functions to load training data from local OmniAct dataset. Primarily for Grounder rn.
+Grounder training scripts should use this utility for consistent data loading. (Maybe the planner too idk)
 
 WIP
 NOTE: I think this one might actually be better suited for usage w/ the planner?
-The task descriptions
+The task descriptions are more complex and less breakable down.
+I'll keep looking for Grounder datasets...
 """
 
 import json
