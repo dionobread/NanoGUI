@@ -29,6 +29,7 @@ from data.test_data_loader import load_test_sample, get_dataset_stats
 from core.screen_capture import capture_screen, get_screen_size
 from core.action_executor import ActionExecutor
 from config import NanoGUIConfig, load_config
+from .agents import GrounderConfig, create_agent_config
 
 
 # Configuration
@@ -97,8 +98,9 @@ class NanoGUIPipeline:
         """Initialize all agents."""
         self.logger.info("Initializing NanoGUI Pipeline...")
         self.model_client = create_glm_client()
+        grounderConfig = create_agent_config("grounded")
         self.planner = PlannerAgent(model_client=self.model_client)
-        self.grounder = GrounderAgent(model_client=self.model_client)
+        self.grounder = GrounderAgent(model_client=self.model_client, config=grounderConfig)
         self.verifier = VerifierAgent(model_client=self.model_client)
         self.executor = ActionExecutor(
             action_delay=self.config.action_delay,

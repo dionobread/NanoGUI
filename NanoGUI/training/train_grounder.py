@@ -17,6 +17,7 @@ from trl import SFTTrainer, SFTConfig
 
 from NanoGUI.agents.base import GrounderConfig
 from NanoGUI.data import load_local_omniact
+from NanoGUI.training.collator import GrounderCollator
 
 logger = logging.getLogger(__name__)
 
@@ -47,20 +48,21 @@ def train_grounder(
         bias = "none",
     )
     
+    # Get the model
+    model = get_peft_model(model, loraConfig)
+    
     # Get a train-test split from the OmniAct dataset
     train_dataset = load_local_omniact(split = "train", load_images = True)
     val_dataset = load_local_omniact(split = "validation", load_images = True)
     
-    # Using PEFT, train the model
-    model = get_peft_model(model, loraConfig)
-    tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+    # Train the model using LoRA
     trainer = SFTTrainer(
         model = model,
         train_dataset = train_dataset,
         eval_dataset = val_dataset,
         args = SFTConfig(
             output_dir = output_dir,
-            max_seq_length = 512,
+            max_seq_length = 2048,
             packing = False,
             per_device_train_batch_size = batch_size,
             learning_rate = learning_rate,
@@ -71,12 +73,15 @@ def train_grounder(
             logging_steps = 10,
             per_device_eval_batch_size = batch_size
         ),
-        data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False),
+        data_collator = GrounderCollator(processor=processor, pad_token_id=processor.tokenizer.pad_token_id),
     )
     trainer.train()
     
     # Save the model
-    model.save_pretrained("./grounder-lora-adapter")
+    adapter_path = Path(output_dir) / "lora_adapter"
+    model.save_pretrained(adapter_path)
+    processor.save_pretrained(adapter_path)  # save processor alongside adapter
+    logger.info("Adapter saved to %s", adapter_path)
     
     # Alternatively, only save the adapter weights
     # trainer.save_model("./lora-adapter")

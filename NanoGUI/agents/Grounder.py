@@ -26,9 +26,12 @@ import logging
 from typing import Optional
 
 import PIL.Image
+from peft import PeftModel
 from autogen_agentchat.messages import MultiModalMessage
 from autogen_core import Image as AGImage
 from autogen_core.models import ChatCompletionClient
+from .base import GrounderConfig
+from pathlib import Path
 
 from .base import (
     BaseAgent,
@@ -57,11 +60,13 @@ class GrounderAgent(BaseAgent):
     model_client : AutoGen-compatible ChatCompletionClient
                    Should be the SMALLER model (2-3B) for efficiency
                    In Phase 2, the underlying model will be LoRA-fine-tuned
+    config : GrounderConfig; contains the path to the LoRA model
     """
 
     def __init__(
         self,
         model_client: ChatCompletionClient,
+        config: GrounderConfig | None = None,
     ) -> None:
         """
         Initialize the Grounder agent.
@@ -76,6 +81,41 @@ class GrounderAgent(BaseAgent):
             model_client=model_client,
             reflect_on_tool_use=False,
         )
+        self._config = config or GrounderConfig()
+        if self._config.lora_adapter_path:
+            self._load_lora_adapter(self._config.lora_adapter_path)
+    
+    def _load_lora_adapter(self, adapter_path: str) -> None:
+        """ 
+        Load a saved LoRA adapter onto the base model.
+        Called automatically if config.lora_adapter_path is set.
+        """
+        path = Path(adapter_path)
+        if not path.exists():
+            raise FileNotFoundError(f"LoRA adapter not found at: {adapter_path}")
+
+        logger.info("[grounder] Loading LoRA adapter from %s", adapter_path)
+
+        # Reach into the model client to get the raw model
+        # Exact attribute depends on your AutoGen client implementation
+        base_model = self._model_client._model
+
+        # Wrap base model with the saved adapter
+        peft_model = PeftModel.from_pretrained(
+            base_model,
+            adapter_path,
+            is_trainable=False,  # inference only
+        )
+
+        if self._config.merge_weights:
+            # Fuse adapter into base weights — faster inference, no PEFT dependency at runtime
+            peft_model = peft_model.merge_and_unload()
+            logger.info("[grounder] LoRA weights merged into base model")
+        else:
+            logger.info("[grounder] LoRA adapter loaded (not merged)")
+
+        # Put the wrapped model back into the client
+        self._model_client._model = peft_model
 
     async def execute(self, *args, **kwargs) -> ActionResult:
         """
