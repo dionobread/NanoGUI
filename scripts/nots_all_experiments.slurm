@@ -26,6 +26,7 @@ mkdir -p outputs logs results datasets
 
 export HF_HOME=/scratch/gz27/hf_cache
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTHONPATH=/scratch/gz27/nanogui/NanoGUI:$PYTHONPATH
 mkdir -p $HF_HOME
 
 # ── PHASE 0: Verify datasets exist ───────────────────────────────────────────
@@ -43,41 +44,46 @@ for ds in screenspot seeclick screenspot_v2; do
     fi
 done
 
-# ── PHASE 1: Train Grounder (LoRA on Qwen2-VL-2B) ───────────────────────────
+# ── PHASE 1: Train Grounder (LoRA on Qwen2.5-VL-3B) ─────────────────────────
 echo ""
 echo "============================================================"
 echo "PHASE 1: Train Grounder on Mixed Data"
-echo "  Model: Qwen/Qwen2-VL-2B-Instruct"
+echo "  Model: Qwen2.5-VL-3B-Instruct (local)"
 echo "  Data: ScreenSpot + SeeClick + ScreenSpot-v2"
 echo "  Epochs: 5 | Batch: 1 | GradAccum: 8 | LR: 5e-5"
 echo "============================================================"
 
-python scripts/train_grounder_v2.py \
-    --dataset mixed \
-    --model Qwen/Qwen2-VL-2B-Instruct \
-    --output outputs/grounder_v2 \
-    --epochs 5 \
-    --batch-size 1 \
-    --lr 5e-5 \
-    --lora-r 16 \
-    --grad-accum 8 \
-    --merge \
-    --fp16
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: Grounder training failed!"
-    echo "Trying with screenspot only..."
+# Skip training if adapter already exists
+if [ -f "outputs/grounder_v2/adapter_config.json" ]; then
+    echo "LoRA adapter already exists, skipping training"
+else
     python scripts/train_grounder_v2.py \
-        --dataset screenspot \
-        --model Qwen/Qwen2-VL-2B-Instruct \
+        --dataset mixed \
+        --model Qwen2.5-VL-3B-Instruct \
         --output outputs/grounder_v2 \
-        --epochs 3 \
+        --epochs 5 \
         --batch-size 1 \
         --lr 5e-5 \
         --lora-r 16 \
         --grad-accum 8 \
         --merge \
         --fp16
+
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Grounder training failed!"
+        echo "Trying with screenspot only..."
+        python scripts/train_grounder_v2.py \
+            --dataset screenspot \
+            --model Qwen2.5-VL-3B-Instruct \
+            --output outputs/grounder_v2 \
+            --epochs 3 \
+            --batch-size 1 \
+            --lr 5e-5 \
+            --lora-r 16 \
+            --grad-accum 8 \
+            --merge \
+            --fp16
+    fi
 fi
 
 echo "Grounder training complete at $(date)"
@@ -91,15 +97,19 @@ echo "PHASE 2: Train Critic Verifier (ResNet-18)"
 echo "  Epochs: 10 | Batch: 64 | LR: 1e-4"
 echo "============================================================"
 
-python NanoGUI/train/train_critic.py \
-    --annotations datasets/screenspot/annotations/train_annotations.json \
-    --output outputs/critic_final \
-    --epochs 10 \
-    --batch-size 64 \
-    --lr 1e-4
+if [ -f "outputs/critic_final/best_critic.safetensors" ] || [ -f "outputs/critic_final/best_critic.pt" ]; then
+    echo "Critic model already exists, skipping training"
+else
+    python NanoGUI/train/train_critic.py \
+        --annotations datasets/screenspot/annotations/train_annotations.json \
+        --output outputs/critic_final \
+        --epochs 10 \
+        --batch-size 64 \
+        --lr 1e-4
 
-if [ $? -ne 0 ]; then
-    echo "WARNING: Critic training failed, continuing without it"
+    if [ $? -ne 0 ]; then
+        echo "WARNING: Critic training failed, continuing without it"
+    fi
 fi
 
 echo "Critic training complete at $(date)"
