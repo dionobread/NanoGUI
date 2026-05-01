@@ -172,20 +172,17 @@ class GroundingDataset(Dataset):
             "gt_coords": torch.tensor([center_x, center_y], dtype=torch.float32),
         }
 
-        # Extend mm_token_type_ids for the target tokens (they're text, not image)
-        if "mm_token_type_ids" in inputs:
-            target_mm = torch.zeros((1, target_ids.shape[1]), dtype=inputs["mm_token_type_ids"].dtype)
-            result["mm_token_type_ids"] = torch.cat(
-                [inputs["mm_token_type_ids"], target_mm], dim=1
-            ).squeeze(0)
-
         # Qwen2-VL specific fields
         if "pixel_values" in inputs:
             result["pixel_values"] = inputs["pixel_values"]
         if "image_grid_thw" in inputs:
             result["image_grid_thw"] = inputs["image_grid_thw"]
         if "mm_token_type_ids" in inputs:
-            result["mm_token_type_ids"] = inputs["mm_token_type_ids"]
+            # Extend for target tokens (text, not image)
+            target_mm = torch.zeros((1, target_ids.shape[1]), dtype=inputs["mm_token_type_ids"].dtype)
+            result["mm_token_type_ids"] = torch.cat(
+                [inputs["mm_token_type_ids"], target_mm], dim=1
+            ).squeeze(0)
 
         return result
 
@@ -410,12 +407,10 @@ class Qwen2VLCollator:
 
         return result
 
-        return result
-
 
 def train_grounder(
     dataset_name: str = "screenspot",
-    model_name: str = "Qwen/Qwen2-VL-2B-Instruct",
+    model_name: str = "Qwen2.5-VL-3B-Instruct",
     output_dir: str = "outputs/grounder_v2",
     lora_r: int = 16,
     lora_alpha: int = 32,
@@ -482,13 +477,20 @@ def train_grounder(
 
     logger.info("Train: %d, Val: %d", len(train_data), len(val_data))
 
-    # Load model
-    logger.info("Loading model: %s", model_name)
-    processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+    # Load model (prefer local path if it exists)
+    model_path = get_project_root() / "models" / model_name
+    if model_path.exists():
+        logger.info("Loading local model: %s", model_path)
+        load_path = str(model_path)
+    else:
+        logger.info("Loading model from HuggingFace: %s", model_name)
+        load_path = model_name
+
+    processor = AutoProcessor.from_pretrained(load_path, trust_remote_code=True)
 
     dtype = torch.float16 if fp16 else torch.float32
     model = Qwen2VLForConditionalGeneration.from_pretrained(
-        model_name,
+        load_path,
         torch_dtype=dtype,
         device_map="auto",
         trust_remote_code=True,
@@ -555,14 +557,26 @@ def train_grounder(
     trainer.save_model(output_dir)
     processor.save_pretrained(output_dir)
 
+    # Verify save worked
+    adapter_config = Path(output_dir) / "adapter_config.json"
+    if adapter_config.exists():
+        logger.info("SUCCESS: LoRA adapter saved to %s", output_dir)
+        logger.info("  Files: %s", list(Path(output_dir).glob("*.json")))
+    else:
+        logger.error("FAILURE: No adapter_config.json found in %s", output_dir)
+        logger.error("  Contents: %s", list(Path(output_dir).iterdir()) if Path(output_dir).exists() else "DIR MISSING")
+
     # Merge if requested
     if merge:
         merged_dir = output_dir + "_merged"
         logger.info("Merging adapter into %s", merged_dir)
-        model = model.merge_and_unload()
-        model.save_pretrained(merged_dir)
-        processor.save_pretrained(merged_dir)
-        logger.info("Merged model saved to %s", merged_dir)
+        try:
+            model = model.merge_and_unload()
+            model.save_pretrained(merged_dir)
+            processor.save_pretrained(merged_dir)
+            logger.info("Merged model saved to %s", merged_dir)
+        except Exception as e:
+            logger.error("Merge failed: %s", e)
 
     logger.info("Training complete!")
     return output_dir
@@ -577,7 +591,7 @@ def main():
         default="screenspot",
         choices=["screenspot", "seeclick", "screenspot_v2", "omniact", "mixed"],
     )
-    parser.add_argument("--model", default="Qwen/Qwen2-VL-2B-Instruct")
+    parser.add_argument("--model", default="Qwen2.5-VL-3B-Instruct")
     parser.add_argument("--output", default="outputs/grounder_v2")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=4)
