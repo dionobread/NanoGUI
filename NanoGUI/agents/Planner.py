@@ -71,7 +71,6 @@ class PlannerAgent(BaseAgent):
         super().__init__(
             name="planner",
             model_client=model_client,
-            system_prompt=self.load_system_prompt("plan"),
             reflect_on_tool_use=False,
         )
 

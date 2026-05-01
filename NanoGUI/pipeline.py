@@ -21,15 +21,15 @@ from typing import Optional, List
 import PIL.Image
 import numpy as np
 
-from agents.Planner import PlannerAgent
-from agents.Grounder import GrounderAgent, GroundedAction
-from agents.Verifier import VerifierAgent, VerificationResult
-from models.glm_client import create_glm_client
-from data.test_data_loader import load_test_sample, get_dataset_stats
-from core.screen_capture import capture_screen, get_screen_size
-from core.action_executor import ActionExecutor
-from config import NanoGUIConfig, load_config
-from .agents import GrounderConfig, create_agent_config
+from .agents.Planner import PlannerAgent
+from .agents.Grounder import GrounderAgent, GroundedAction
+from .agents.Verifier import VerifierAgent, VerificationResult
+from .models.glm_client import create_glm_client
+from .data.test_data_loader import load_test_sample, get_dataset_stats
+from .core.screen_capture import capture_screen, get_screen_size
+from .core.action_executor import ActionExecutor
+from .config import NanoGUIConfig, load_config
+from .agents.base import GrounderConfig, create_agent_config, AgentType
 
 
 # Configuration
@@ -98,7 +98,7 @@ class NanoGUIPipeline:
         """Initialize all agents."""
         self.logger.info("Initializing NanoGUI Pipeline...")
         self.model_client = create_glm_client()
-        grounderConfig = create_agent_config("grounded")
+        grounderConfig = create_agent_config(AgentType.GROUNDER)
         self.planner = PlannerAgent(model_client=self.model_client)
         self.grounder = GrounderAgent(model_client=self.model_client, config=grounderConfig)
         self.verifier = VerifierAgent(model_client=self.model_client)

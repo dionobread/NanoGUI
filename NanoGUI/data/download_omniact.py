@@ -23,7 +23,7 @@ from datasets import load_dataset, Dataset
 class OmniActDownloader:
     """Downloads and processes the OmniAct dataset."""
 
-    def __init__(self, save_dir: str = "./data/omniact"):
+    def __init__(self, save_dir: str = "./datasets/omniact"):
         """
         Initialize the downloader.
 
@@ -208,7 +208,7 @@ def main():
     print("=" * 60)
 
     # Initialize downloader
-    downloader = OmniActDownloader(save_dir="./data/omniact")
+    downloader = OmniActDownloader(save_dir="./datasets/omniact")
 
     # Download dataset
     dataset = downloader.download_dataset()

@@ -24,7 +24,7 @@ class NanoGUIConfig:
 
     # -- Device settings --
     device: str = "cuda"
-    load_in_4bit: bool = True
+    load_in_4bit: bool = False
 
     # -- Pipeline settings --
     max_steps: int = 20

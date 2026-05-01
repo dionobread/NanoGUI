@@ -12,7 +12,7 @@ from typing import Tuple
 import pyautogui
 import PIL.Image
 
-from agents.base import GroundedAction, ActionType
+from ..agents.base import GroundedAction, ActionType
 
 logger = logging.getLogger(__name__)
 

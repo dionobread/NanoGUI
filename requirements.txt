@@ -15,7 +15,6 @@ torchvision>=0.17.0
 transformers>=4.40.0
 peft>=0.8.0
 accelerate>=0.25.0
-bitsandbytes>=0.42.0  # For 4-bit quantization
 qwen-vl-utils>=0.0.1  # For Qwen2-VL image processing
 
 # Computer Vision

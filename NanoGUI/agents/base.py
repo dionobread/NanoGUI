@@ -293,7 +293,7 @@ class BaseAgent(abc.ABC):
             # Determine which prompt to return
             if prompt_name == "default":
                 if self._name == "planner":
-                    return config.get("planner_prompt", "")
+                    return config.get("plan_prompt", "")
                 elif self._name == "grounder":
                     return config.get("grounder_prompt", "")
                 elif self._name == "verifier":
@@ -338,6 +338,7 @@ class BaseAgent(abc.ABC):
         Handles common issues:
         - Markdown code fences (```json ... ```)
         - Leading/trailing whitespace
+        - Extra text after valid JSON (hallucinated content)
         - Malformed JSON (graceful fallback)
 
         Parameters
@@ -355,18 +356,48 @@ class BaseAgent(abc.ABC):
         # Strip markdown fences
         cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
 
+        # Try 1: parse the full cleaned string
         try:
-            data = json.loads(cleaned)
-            return data
-        except json.JSONDecodeError as exc:
-            logger.warning(
-                "[%s] JSON parse failed: %s\nRaw output: %s",
-                exc, raw[:200]
-            )
-            raise ValueError(
-                f"Failed to parse model output as JSON. "
-                f"Error: {exc}. Raw: {raw[:200]}"
-            ) from exc
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Try 2: extract the first balanced JSON object by brace counting
+        def _extract_first_json(text: str) -> str | None:
+            start = text.find("{")
+            if start == -1:
+                return None
+            depth = 0
+            for i, ch in enumerate(text[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start:i + 1]
+            return None
+
+        extracted = _extract_first_json(cleaned)
+        if extracted:
+            try:
+                return json.loads(extracted)
+            except json.JSONDecodeError:
+                pass
+
+        # Try 3: regex for the first JSON-like block (non-greedy)
+        match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", cleaned)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        logger.warning(
+            "JSON parse failed. Raw output: %s", raw[:500]
+        )
+        raise ValueError(
+            f"Failed to parse model output as JSON. Raw: {raw[:500]}"
+        )
 
     @staticmethod
     def extract_coordinate_from_text(
@@ -427,7 +458,7 @@ class AgentConfig:
 
     model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     device: str = "cuda"
-    load_in_4bit: bool = True
+    load_in_4bit: bool = False
     max_new_tokens: int = 512
     temperature: float = 0.0
 
@@ -459,7 +490,8 @@ class GrounderConfig(AgentConfig):
     load_in_4bit: bool = False
     lora_r: int = 16  # The paper says 16 for r
     lora_alpha: int = 32
-    lora_target_modules: list[str] = ["q_proj", "v_proj", "k_proj", "o_proj"]  # TODO: Double check
+    lora_dropout: float = 0.05
+    lora_target_modules: list[str] = field(default_factory=lambda: ["q_proj", "v_proj", "k_proj", "o_proj"])
 
 
 @dataclass

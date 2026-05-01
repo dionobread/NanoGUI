@@ -86,19 +86,25 @@ class GrounderAgent(BaseAgent):
             self._load_lora_adapter(self._config.lora_adapter_path)
     
     def _load_lora_adapter(self, adapter_path: str) -> None:
-        """ 
+        """
         Load a saved LoRA adapter onto the base model.
         Called automatically if config.lora_adapter_path is set.
+
+        Only works with LocalVLMClient (local models with a ._model attribute).
         """
         path = Path(adapter_path)
         if not path.exists():
             raise FileNotFoundError(f"LoRA adapter not found at: {adapter_path}")
 
-        logger.info("[grounder] Loading LoRA adapter from %s", adapter_path)
+        base_model = getattr(self._model_client, "_model", None)
+        if base_model is None:
+            logger.warning(
+                "[grounder] Cannot load LoRA adapter — model client has no local model. "
+                "LoRA requires LocalVLMClient, not a cloud API client."
+            )
+            return
 
-        # Reach into the model client to get the raw model
-        # Exact attribute depends on your AutoGen client implementation
-        base_model = self._model_client._model
+        logger.info("[grounder] Loading LoRA adapter from %s", adapter_path)
 
         # Wrap base model with the saved adapter
         peft_model = PeftModel.from_pretrained(

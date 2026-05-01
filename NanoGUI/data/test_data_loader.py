@@ -13,9 +13,42 @@ import PIL.Image
 
 logger = logging.getLogger(__name__)
 
+# Project root (NanoGUI repo root, one level up from this package)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Default data directory — annotations reference 'data\screenspot\...' but
+# the actual location is 'datasets/screenspot/...'
+SCREENSPOT_DIR = str(PROJECT_ROOT / "datasets" / "screenspot")
+
+
+def _resolve_image_path(image_path: str) -> Optional[Path]:
+    """Resolve an image path from annotation, handling path mismatches."""
+    p = Path(image_path)
+
+    # 1. Try as-is
+    if p.exists():
+        return p
+
+    # 2. Try relative to project root
+    candidate = PROJECT_ROOT / p
+    if candidate.exists():
+        return candidate
+
+    # 3. ScreenSpot annotations use 'data\screenspot\images\...' but
+    #    repo uses 'datasets/screenspot/images/...' — rewrite
+    parts = p.parts
+    if "data" in parts:
+        idx = parts.index("data")
+        new_parts = parts[:idx] + ("datasets",) + parts[idx + 1:]
+        candidate = PROJECT_ROOT.joinpath(*new_parts)
+        if candidate.exists():
+            return candidate
+
+    return None
+
 
 def load_local_screenspot(
-    data_dir: str = "./data/screenspot",
+    data_dir: str = SCREENSPOT_DIR,
     split: str = "test",
     sample_idx: int = 0
 ) -> Tuple[Optional[PIL.Image.Image], Optional[str], Optional[dict]]:
@@ -35,7 +68,6 @@ def load_local_screenspot(
 
     if not annotations_file.exists():
         logger.warning(f"Annotations file not found: {annotations_file}")
-        logger.info("Run: python NanoGUI/datasets/download_screenspot.py")
         return None, None, None
 
     try:
@@ -47,16 +79,15 @@ def load_local_screenspot(
             sample_idx = 0
 
         sample = annotations[sample_idx]
-        image_path = sample.get("image_path")
+        raw_image_path = sample.get("image_path", "")
 
-        if not image_path or not Path(image_path).exists():
-            logger.warning(f"Image path not found or invalid: {image_path}")
+        # Resolve image path (handles data/ → datasets/ rewrite)
+        resolved = _resolve_image_path(raw_image_path)
+        if resolved is None:
+            logger.warning(f"Image not found: {raw_image_path}")
             return None, None, None
 
-        # Load image
-        image = PIL.Image.open(image_path).convert("RGB")
-
-        # Extract data
+        image = PIL.Image.open(resolved).convert("RGB")
         instruction = sample.get("instruction", "")
         bbox = sample.get("bbox", [0, 0, 0, 0])
         data_type = sample.get("data_type", "unknown")
@@ -64,7 +95,7 @@ def load_local_screenspot(
         metadata = {
             "bbox": bbox,
             "data_type": data_type,
-            "image_path": image_path,
+            "image_path": str(resolved),
             "sample_id": sample.get("id", f"{split}_{sample_idx}")
         }
 
@@ -94,18 +125,15 @@ def load_test_sample(
     Returns:
         Tuple of (image, instruction, metadata)
     """
-    # Try local ScreenSpot first
     image, instruction, metadata = load_local_screenspot()
 
     if image is not None:
         return image, instruction, metadata or {}
 
-    # Fallback to synthetic data
     if fallback_to_synthetic:
         logger.warning("Using synthetic test data")
         import numpy as np
 
-        # Create a simple test image
         arr = np.full((720, 1280, 3), 240, dtype=np.uint8)
         image = PIL.Image.fromarray(arr)
         instruction = "Click the search bar at the top of the page"
@@ -122,7 +150,7 @@ def load_test_sample(
     raise RuntimeError("No test data available and fallback disabled")
 
 
-def get_dataset_stats(data_dir: str = "./data/screenspot") -> dict:
+def get_dataset_stats(data_dir: str = SCREENSPOT_DIR) -> dict:
     """
     Get statistics about the local ScreenSpot dataset.
 
@@ -162,36 +190,6 @@ def get_dataset_stats(data_dir: str = "./data/screenspot") -> dict:
     return stats
 
 
-# Convenience functions for backward compatibility
 def load_screenspot_sample():
     """Alias for load_local_screenspot with default parameters."""
     return load_local_screenspot()
-
-
-if __name__ == "__main__":
-    """Test the data loader."""
-    import sys
-
-    # Setup logging
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-
-    print("Testing ScreenSpot data loader...")
-    print("=" * 50)
-
-    # Check dataset availability
-    stats = get_dataset_stats()
-    print(f"Dataset available: {stats['available']}")
-    if stats['available']:
-        print("Splits:")
-        for split_name, split_info in stats['splits'].items():
-            print(f"  {split_name}: {split_info['count']} samples")
-
-    # Load a test sample
-    image, instruction, metadata = load_test_sample()
-
-    print(f"\nTest sample loaded:")
-    print(f"  Image size: {image.size}")
-    print(f"  Instruction: {instruction}")
-    print(f"  Metadata: {metadata}")
-
-    print("\nData loader test completed!")

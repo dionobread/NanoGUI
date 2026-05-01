@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project outputs
+models/
+outputs/
+results/
+datasets/
+logs/
+*.out
+*.err
+
+# Data
+*.docx
+*.pdf
+*.pptx
+
+# Claude
+.claude/
+refine-logs/
+
+# OS
+.DS_Store
+Thumbs.db
