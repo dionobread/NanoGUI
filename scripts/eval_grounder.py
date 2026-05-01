@@ -208,7 +208,7 @@ def load_screenspot_annotations(split: str = "test") -> List[Dict]:
     if not anno_path.exists():
         raise FileNotFoundError(
             f"ScreenSpot {split} annotations not found at {anno_path}\n"
-            f"Download first: python scripts/download_datasets.py --screenspot"
+            f"Download first: python -m NanoGUI.data.download_all_datasets gui screenspot --no-images"
         )
 
     with open(anno_path, "r", encoding="utf-8") as f:
@@ -424,7 +424,7 @@ Examples:
     except FileNotFoundError as e:
         print(f"\nERROR: {e}")
         print("\nTo download ScreenSpot:")
-        print("  python scripts/download_datasets.py --screenspot")
+        print("  python -m NanoGUI.data.download_all_datasets gui screenspot --no-images")
         raise SystemExit(1)
 
     # Print results

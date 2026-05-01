@@ -134,17 +134,17 @@ def main():
             # Use existing download scripts
             if not datasets.get("screenspot"):
                 run_cmd(
-                    [sys.executable, str(root / "scripts" / "download_datasets.py"), "--screenspot"],
+                    [sys.executable, "-m", "NanoGUI.data.download_all_datasets", "gui", "screenspot", "--no-images"],
                     "ScreenSpot download"
                 )
             if not datasets.get("seeclick"):
                 run_cmd(
-                    [sys.executable, str(root / "scripts" / "download_datasets.py"), "--seeclick"],
+                    [sys.executable, "-m", "NanoGUI.data.download_all_datasets", "legacy", "seeclick", "--no-images"],
                     "SeeClick download"
                 )
             if not datasets.get("omniact"):
                 logger.info("OmniAct download requires HF access. Run manually:")
-                logger.info("  python NanoGUI/data/download_omniact.py")
+                logger.info("  python -m NanoGUI.data.download_all_datasets omniact --no-images")
 
             # Re-check
             datasets = check_datasets(root)

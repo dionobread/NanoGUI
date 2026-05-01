@@ -38,7 +38,7 @@ echo "============================================================"
 for ds in screenspot seeclick screenspot_v2; do
     if [ ! -d "datasets/$ds" ]; then
         echo "[MISSING] datasets/$ds - attempting download..."
-        python scripts/download_datasets.py --$ds 2>/dev/null || echo "Download failed for $ds"
+        python -m NanoGUI.data.download_all_datasets legacy $ds --no-images 2>/dev/null || echo "Download failed for $ds"
     else
         echo "[OK] datasets/$ds"
     fi

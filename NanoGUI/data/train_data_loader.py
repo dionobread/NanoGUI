@@ -37,7 +37,7 @@ def load_local_omniact(
 
     if not annotations_dir.exists():
         logger.warning("Annotations directory not found: %s", annotations_dir)
-        logger.info("Run: python NanoGUI/data/download_omniact.py")
+        logger.info("Run: python -m NanoGUI.data.download_all_datasets omniact --no-images")
         return {}
 
     # Determine which splits to load

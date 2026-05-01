@@ -188,7 +188,7 @@ NanoGUI/
 ├── data/                      # Data loaders and download scripts
 │   ├── test_data_loader.py
 │   ├── train_data_loader.py
-│   └── download_omniact.py
+│   └── download_all_datasets.py
 ├── gui_actor/                 # Patched GUI-Actor source (pointer inference)
 │   ├── inference.py
 │   ├── modeling_qwen25vl.py
@@ -210,7 +210,7 @@ scripts/
 ├── run_ablation.py            # Ablation study runner (7 configs)
 ├── run_all.py                 # One-click experiment pipeline
 ├── train_grounder_v2.py       # Improved LoRA fine-tuning
-├── download_datasets.py       # Download SeeClick, ScreenSpot-v2
+├── download_all_datasets.py   # Unified dataset downloader (GUI, planner, legacy)
 ├── test_pipeline_e2e.py       # End-to-end pipeline test
 ├── nots_all_experiments.slurm # NOTS cluster SLURM script
 └── nots_setup.sh              # NOTS one-time setup

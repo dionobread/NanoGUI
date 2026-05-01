@@ -295,7 +295,7 @@ def load_screenspot_v2(max_samples: Optional[int] = None) -> List[Dict]:
 
 
 def load_omniact(max_samples: Optional[int] = None) -> List[Dict]:
-    """Load OmniAct from local annotations (downloaded via download_omniact.py)."""
+    """Load OmniAct from local annotations (downloaded via download_all_datasets.py)."""
     root = get_project_root()
     anno_dir = root / "datasets" / "omniact" / "annotations"
 
