@@ -70,6 +70,8 @@ All models are stored under `models/` and loaded locally (no Hugging Face downlo
 
 ScreenSpot annotations use normalized bounding box format `[x1, y1, x2, y2]`.
 
+**Download additional datasets:** See `NanoGUI/data/README.md` for unified downloaders supporting ScreenSpot-Pro, Salesforce Grounding, OS-Atlas, Mind2Web, AITW, and more.
+
 ---
 
 ## Ablation Study (7 Configurations)
