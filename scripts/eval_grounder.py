@@ -1,8 +1,7 @@
 """
 Evaluate the Grounder model on ScreenSpot test set.
 
-Measures: grounding accuracy (% of predictions inside ground-truth bbox).
-No training required — uses the pre-trained GUI-Actor model directly.
+Uses GUI-Actor's native coordinate-free pointer inference for accurate results.
 
 Usage:
     python scripts/eval_grounder.py --model GUI-Actor-3B-Qwen2.5-VL
@@ -13,6 +12,7 @@ Usage:
 import argparse
 import json
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -27,6 +27,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Add NanoGUI to path for gui_actor package
+sys.path.insert(0, str(Path(__file__).parent.parent / "NanoGUI"))
+
 
 def get_project_root() -> Path:
     return Path(__file__).parent.parent
@@ -39,157 +42,151 @@ def discover_models() -> List[str]:
     return sorted([d.name for d in models_dir.iterdir() if d.is_dir() and (d / "config.json").exists()])
 
 
-def load_grounder(model_name: str):
-    """Load a vision-language model for grounding (full precision FP16)."""
-    import torch
-    from transformers import AutoProcessor
+class GUIActorGrounder:
+    """Wrapper for GUI-Actor model with native pointer-based inference."""
 
-    model_path = get_project_root() / "models" / model_name
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found: {model_path}")
+    def __init__(self, model_name: str):
+        import torch
+        from transformers import AutoProcessor
+        from gui_actor.modeling_qwen25vl import Qwen2_5_VLForConditionalGenerationWithPointer
+        from gui_actor.inference import inference
 
-    logger.info("Loading %s (FP16)...", model_name)
+        self.inference = inference
+        self.model_name = model_name
+        model_path = get_project_root() / "models" / model_name
 
-    processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+        logger.info("Loading %s (bfloat16)...", model_name)
+        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+        self.tokenizer = self.processor.tokenizer
+        self.model = Qwen2_5_VLForConditionalGenerationWithPointer.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True,
+        ).eval()
+        logger.info("Model loaded on %s", next(self.model.parameters()).device)
 
-    # Load with the correct model class for each architecture
-    if "Qwen2.5-VL" in model_name or "Qwen2_5_VL" in model_name:
-        from transformers import Qwen2_5_VLForConditionalGeneration
-        model_cls = Qwen2_5_VLForConditionalGeneration
-    elif "Qwen2-VL" in model_name or "Qwen2VL" in model_name:
-        from transformers import Qwen2VLForConditionalGeneration
-        model_cls = Qwen2VLForConditionalGeneration
-    else:
-        from transformers import AutoModelForCausalLM
-        model_cls = AutoModelForCausalLM
-
-    model = model_cls.from_pretrained(
-        model_path,
-        torch_dtype=torch.float16,
-        device_map="auto",
-        trust_remote_code=True,
-        low_cpu_mem_usage=True,
-    )
-
-    logger.info("Model loaded on %s", next(model.parameters()).device)
-    return model, processor
-
-
-def predict_coordinate(
-    model,
-    processor,
-    image: Image.Image,
-    instruction: str,
-    max_new_tokens: int = 32,
-) -> Tuple[float, float]:
-    """
-    Predict normalized (x, y) coordinate for a UI element.
-
-    Returns:
-        (x, y) in [0, 1] range.
-    """
-    import torch
-
-    # Format prompt using chat template for Qwen2.5-VL
-    messages = [
-        {"role": "system", "content": "You are a GUI grounding assistant. Predict the normalized coordinates (x, y) of UI elements."},
-        {"role": "user", "content": [
-            {"type": "image", "image": image},
-            {"type": "text", "text": f"Task: {instruction}\nOutput the normalized coordinates (x, y) of the target element."}
-        ]}
-    ]
-
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = processor(text=[text], images=[image], return_tensors="pt", padding=True)
-    inputs = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-
-    # Generate
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            temperature=None,
-            top_p=None,
+        self.system_message = (
+            "You are a GUI agent. Given a screenshot of the current GUI and a human instruction, "
+            "your task is to locate the screen element that corresponds to the instruction. "
+            "You should output a PyAutoGUI action that performs a click on the correct position. "
+            "To indicate the click location, we will use some special tokens, which is used to refer "
+            "to a visual patch later. For example, you can output: pyautogui.click(<your_special_token_here>)."
         )
 
-    # Decode
-    generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
-    response = processor.decode(generated_ids, skip_special_tokens=True).strip()
-
-    # Parse coordinates
-    import re
-    match = re.search(r"\(?(0\.\d+)[,\s]+(0\.\d+)\)?", response)
-    if match:
-        x, y = float(match.group(1)), float(match.group(2))
-        return x, y
-
-    # Fallback: try any two floats
-    match = re.search(r"(\d+\.?\d*)[,\s]+(\d+\.?\d*)", response)
-    if match:
-        x, y = float(match.group(1)), float(match.group(2))
-        # Normalize if pixels
-        if x > 1.0:
-            x = x / image.width
-        if y > 1.0:
-            y = y / image.height
-        return x, y
-
-    logger.warning("Could not parse coordinates from: %r", response)
-    return 0.5, 0.5  # default to center
-
-
-def predict_coordinate_sampled(
-    model,
-    processor,
-    image: Image.Image,
-    instruction: str,
-    temperature: float = 0.7,
-    max_new_tokens: int = 32,
-) -> Tuple[float, float]:
-    """Like predict_coordinate but with sampling enabled for diversity."""
-    import torch
-
-    messages = [
-        {"role": "system", "content": "You are a GUI grounding assistant. Predict the normalized coordinates (x, y) of UI elements."},
-        {"role": "user", "content": [
-            {"type": "image", "image": image},
-            {"type": "text", "text": f"Task: {instruction}\nOutput the normalized coordinates (x, y) of the target element."}
-        ]}
-    ]
-
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = processor(text=[text], images=[image], return_tensors="pt", padding=True)
-    inputs = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=temperature,
-            top_p=0.9,
+    def predict(self, image: Image.Image, instruction: str) -> Tuple[float, float]:
+        conversation = [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": self.system_message}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": instruction},
+                ],
+            },
+        ]
+        pred = self.inference(
+            conversation, self.model, self.tokenizer, self.processor,
+            use_placeholder=True, topk=1,
         )
+        px, py = pred["topk_points"][0]
+        return px, py
 
-    generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
-    response = processor.decode(generated_ids, skip_special_tokens=True).strip()
+    def close(self):
+        import gc
+        import torch
+        del self.model
+        del self.processor
+        del self.tokenizer
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("GUI-Actor model closed.")
 
-    import re
-    match = re.search(r"\(?(0\.\d+)[,\s]+(0\.\d+)\)?", response)
-    if match:
-        return float(match.group(1)), float(match.group(2))
 
-    match = re.search(r"(\d+\.?\d*)[,\s]+(\d+\.?\d*)", response)
-    if match:
-        x, y = float(match.group(1)), float(match.group(2))
-        if x > 1.0:
-            x = x / image.width
-        if y > 1.0:
-            y = y / image.height
-        return x, y
+class StandardGrounder:
+    """Wrapper for standard VLM models that output text coordinates."""
 
-    logger.warning("Could not parse coordinates from: %r", response)
-    return 0.5, 0.5
+    def __init__(self, model_name: str):
+        import torch
+        from transformers import AutoProcessor, AutoModelForCausalLM
+
+        self.model_name = model_name
+        model_path = get_project_root() / "models" / model_name
+
+        logger.info("Loading %s (FP16)...", model_name)
+        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+
+        # Detect model class from config
+        import json
+        with open(model_path / "config.json") as f:
+            cfg = json.load(f)
+        arch = (cfg.get("architectures") or [""])[0]
+        mtype = cfg.get("model_type", "")
+
+        if "Qwen2_5_VL" in arch or mtype == "qwen2_5_vl":
+            from transformers import Qwen2_5_VLForConditionalGeneration as cls
+        elif "Qwen2VL" in arch or mtype == "qwen2_vl":
+            from transformers import Qwen2VLForConditionalGeneration as cls
+        else:
+            cls = AutoModelForCausalLM
+
+        self.model = cls.from_pretrained(
+            model_path, torch_dtype=torch.float16,
+            device_map="auto", trust_remote_code=True, low_cpu_mem_usage=True,
+        )
+        logger.info("Model loaded on %s", next(self.model.parameters()).device)
+
+    def predict(self, image: Image.Image, instruction: str) -> Tuple[float, float]:
+        import torch
+        import re
+
+        messages = [
+            {"role": "system", "content": "You are a GUI grounding assistant. Predict the normalized coordinates (x, y) of UI elements."},
+            {"role": "user", "content": [
+                {"type": "image", "image": image},
+                {"type": "text", "text": f"Task: {instruction}\nOutput the normalized coordinates (x, y) of the target element."}
+            ]}
+        ]
+
+        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = self.processor(text=[text], images=[image], return_tensors="pt", padding=True)
+        inputs = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self.model.generate(**inputs, max_new_tokens=32, do_sample=False)
+
+        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+        response = self.processor.decode(generated_ids, skip_special_tokens=True).strip()
+
+        match = re.search(r"\(?(0\.\d+)[,\s]+(0\.\d+)\)?", response)
+        if match:
+            return float(match.group(1)), float(match.group(2))
+
+        match = re.search(r"(\d+\.?\d*)[,\s]+(\d+\.?\d*)", response)
+        if match:
+            x, y = float(match.group(1)), float(match.group(2))
+            if x > 1.0:
+                x = x / image.width
+            if y > 1.0:
+                y = y / image.height
+            return x, y
+
+        logger.warning("Could not parse coordinates from: %r", response)
+        return 0.5, 0.5
+
+    def close(self):
+        import gc
+        import torch
+        del self.model
+        del self.processor
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Standard grounder closed.")
 
 
 def is_inside_bbox(
@@ -256,7 +253,6 @@ def evaluate_grounder(
     logger.info("Grounder Evaluation")
     logger.info("=" * 60)
     logger.info("Model: %s", model_name)
-    logger.info("Mode:  %s", mode)
     logger.info("Split: %s", split)
 
     # Load data
@@ -267,7 +263,7 @@ def evaluate_grounder(
     logger.info("Samples: %d", len(samples))
 
     # Load model
-    model, processor = load_grounder(model_name)
+    grounder = GUIActorGrounder(model_name)
 
     # Evaluate
     correct = 0
@@ -285,7 +281,7 @@ def evaluate_grounder(
 
         # Predict
         t0 = time.time()
-        pred_x, pred_y = predict_coordinate(model, processor, image, instruction)
+        pred_x, pred_y = grounder.predict(image, instruction)
         inference_time = time.time() - t0
 
         # Check accuracy
@@ -294,7 +290,7 @@ def evaluate_grounder(
             correct += 1
         total += 1
 
-        # Ground truth center (bbox is [x1, y1, x2, y2] normalized)
+        # Ground truth center
         gt_x = (bbox[0] + bbox[2]) / 2
         gt_y = (bbox[1] + bbox[3]) / 2
 
@@ -315,13 +311,14 @@ def evaluate_grounder(
             acc = correct / total * 100
             logger.info("Progress: %d/%d | Accuracy: %.1f%%", i + 1, len(samples), acc)
 
+    grounder.close()
+
     accuracy = correct / total * 100 if total > 0 else 0
     avg_time = np.mean([r["inference_time_ms"] for r in results])
     avg_dist = np.mean([r["distance"] for r in results])
 
     summary = {
         "model": model_name,
-        "mode": mode,
         "split": split,
         "total_samples": total,
         "correct": correct,
@@ -340,7 +337,6 @@ def print_summary(summary: Dict):
     print("EVALUATION RESULTS")
     print("=" * 60)
     print(f"  Model:    {summary['model']}")
-    print(f"  Mode:     {summary['mode']}")
     print(f"  Split:    {summary['split']}")
     print(f"  Samples:  {summary['total_samples']}")
     print(f"  Correct:  {summary['correct']}")
@@ -352,7 +348,6 @@ def print_summary(summary: Dict):
     # Breakdown by data type if available
     by_type = {}
     for r in summary["results"]:
-        # Extract data type from id or instruction
         dtype = "unknown"
         if "web" in r["instruction"].lower():
             dtype = "web"
@@ -377,7 +372,7 @@ def print_summary(summary: Dict):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate Grounder on ScreenSpot (no training needed)",
+        description="Evaluate Grounder on ScreenSpot using GUI-Actor native inference",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

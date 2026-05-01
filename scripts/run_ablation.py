@@ -41,13 +41,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "NanoGUI"))
 # Reuse path handling from eval_grounder
 sys.path.insert(0, str(Path(__file__).parent))
 from eval_grounder import (
+    GUIActorGrounder,
+    StandardGrounder,
     discover_models,
     get_project_root,
     is_inside_bbox,
-    load_grounder,
     load_screenspot_annotations,
-    predict_coordinate,
-    predict_coordinate_sampled,
 )
 
 logging.basicConfig(
@@ -138,27 +137,41 @@ def _gt_center(bbox: List[float]) -> Tuple[float, float]:
 # ── Grounder wrapper (direct transformers, with cleanup) ──────────────────────
 
 class GrounderModel:
-    """Wraps eval_grounder's load_grounder + predict_coordinate with cleanup."""
+    """Wraps either GUI-Actor or standard VLM grounder with cleanup."""
 
     def __init__(self, model_name: str):
         self.model_name = model_name
-        self.model = None
-        self.processor = None
+        self._grounder = None
+
+    def _detect_type(self):
+        """Detect if model is GUI-Actor (has pointer tokens) or standard VLM."""
+        model_path = get_project_root() / "models" / self.model_name
+        if not (model_path / "config.json").exists():
+            return "standard"
+        import json
+        with open(model_path / "config.json") as f:
+            cfg = json.load(f)
+        # GUI-Actor models have pointer_start_token_id in config
+        if "pointer_start_token_id" in cfg:
+            return "gui_actor"
+        return "standard"
 
     def load(self):
-        if self.model is None:
-            self.model, self.processor = load_grounder(self.model_name)
+        if self._grounder is None:
+            gtype = self._detect_type()
+            if gtype == "gui_actor":
+                self._grounder = GUIActorGrounder(self.model_name)
+            else:
+                self._grounder = StandardGrounder(self.model_name)
 
     def predict(self, image: Image.Image, instruction: str) -> Tuple[float, float]:
         self.load()
-        return predict_coordinate(self.model, self.processor, image, instruction)
+        return self._grounder.predict(image, instruction)
 
     def close(self):
-        if self.model is not None:
-            del self.model
-            del self.processor
-            self.model = None
-            self.processor = None
+        if self._grounder is not None:
+            self._grounder.close()
+            self._grounder = None
             _aggressive_vram_cleanup()
             logger.info("Grounder model closed, VRAM freed.")
 
@@ -1087,17 +1100,10 @@ def run_config_e(
 
             t0 = time.time()
 
-            # Generate multiple predictions with sampling
+            # Generate multiple predictions
             preds = []
-            # First attempt: greedy (same as baseline)
-            px, py = grounder.predict(image, instruction)
-            preds.append((px, py))
-            # Subsequent attempts: sampling for diversity
-            for attempt_idx in range(1, num_attempts):
-                px, py = predict_coordinate_sampled(
-                    grounder.model, grounder.processor, image, instruction,
-                    temperature=0.5 + 0.3 * attempt_idx,  # 0.8, 1.1, ...
-                )
+            for _ in range(num_attempts):
+                px, py = grounder.predict(image, instruction)
                 preds.append((px, py))
 
             # Pick the best: use the prediction closest to the cluster center
@@ -1375,7 +1381,36 @@ def run_config_g(
             gt_x, gt_y = _gt_center(bbox)
 
             t0 = time.time()
-            pred_x, pred_y = predict_coordinate(model, processor, image, instruction)
+            # Inline prediction for fine-tuned model
+            import re
+            messages = [
+                {"role": "system", "content": "You are a GUI grounding assistant. Predict the normalized coordinates (x, y) of UI elements."},
+                {"role": "user", "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": f"Task: {instruction}\nOutput the normalized coordinates (x, y) of the target element."}
+                ]}
+            ]
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            inputs = processor(text=[text], images=[image], return_tensors="pt", padding=True)
+            inputs = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = model.generate(**inputs, max_new_tokens=32, do_sample=False)
+            generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+            response = processor.decode(generated_ids, skip_special_tokens=True).strip()
+            match = re.search(r"\(?(0\.\d+)[,\s]+(0\.\d+)\)?", response)
+            if match:
+                pred_x, pred_y = float(match.group(1)), float(match.group(2))
+            else:
+                match = re.search(r"(\d+\.?\d*)[,\s]+(\d+\.?\d*)", response)
+                if match:
+                    pred_x, pred_y = float(match.group(1)), float(match.group(2))
+                    if pred_x > 1.0:
+                        pred_x = pred_x / image.width
+                    if pred_y > 1.0:
+                        pred_y = pred_y / image.height
+                else:
+                    logger.warning("Could not parse: %r", response)
+                    pred_x, pred_y = 0.5, 0.5
             inference_ms = (time.time() - t0) * 1000
 
             is_correct = is_inside_bbox(pred_x, pred_y, bbox, image.width, image.height)
