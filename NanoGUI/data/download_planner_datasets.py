@@ -208,7 +208,7 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(list(PLANNER_DATASETS.keys()) + ["all"]),
         help="Planner dataset to download, or 'all'.",
     )
-    parser.add_argument("--root-dir", default="./data/planner_sources")
+    parser.add_argument("--root-dir", default="./datasets/planner_sources")
     parser.add_argument("--split", action="append", help="Split to download. Repeat for multiple splits.")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit samples per split for smoke tests.")
     parser.add_argument("--no-images", action="store_true", help="Save annotations only.")

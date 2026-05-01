@@ -283,7 +283,7 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(list(DATASETS.keys()) + ["os_atlas"]),
         help="Dataset key to download.",
     )
-    parser.add_argument("--root-dir", default="./data", help="Directory where datasets are saved.")
+    parser.add_argument("--root-dir", default="./datasets", help="Directory where datasets are saved.")
     parser.add_argument("--split", action="append", help="Split to download. Repeat for multiple splits.")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit samples per split for smoke tests.")
     parser.add_argument("--no-images", action="store_true", help="Save annotations only.")

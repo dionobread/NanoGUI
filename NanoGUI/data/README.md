@@ -1,98 +1,89 @@
 # NanoGUI Data Scripts
 
-Use `download_gui_datasets.py` for dataset downloads and `build_verifier_dataset.py`
-to create verifier examples from local grounding annotations.
+Dataset downloaders and preprocessing utilities.
 
-Install the dataset dependency first:
+## Quick Start
+
+Install dependencies:
 
 ```bash
 pip install datasets huggingface_hub
 ```
 
-## Quick Smoke Tests
+## Downloaders
 
-Download a tiny ScreenSpot sample:
+### Unified GUI Dataset Downloader
 
-```bash
-python NanoGUI/data/download_gui_datasets.py screenspot --max-samples 10
-```
-
-Build verifier examples from that sample:
+`download_gui_datasets.py` downloads grounding datasets from Hugging Face:
 
 ```bash
-python NanoGUI/data/build_verifier_dataset.py \
-  --data-dir ./data/screenspot \
-  --split test \
-  --max-samples 10 \
-  --render-overlays
-```
-
-## Recommended Downloads
-
-Grounder training/evaluation:
-
-```bash
-python NanoGUI/data/download_gui_datasets.py salesforce_grounding --split train
-python NanoGUI/data/download_gui_datasets.py omniact --split train --split val
+# ScreenSpot (evaluation benchmark)
 python NanoGUI/data/download_gui_datasets.py screenspot
-python NanoGUI/data/download_gui_datasets.py screenspot_pro
-```
 
-Planner trajectory data:
+# ScreenSpot-Pro (harder benchmark)
+python NanoGUI/data/download_gui_datasets.py screenspot_pro --split train
 
-```bash
-python NanoGUI/data/download_planner_datasets.py mind2web --no-images
-python NanoGUI/data/download_planner_datasets.py multimodal_mind2web
-python NanoGUI/data/download_planner_datasets.py online_mind2web --no-images
-python NanoGUI/data/download_planner_datasets.py aitw_single --max-samples 5000
-```
+# OmniAct (desktop + web grounding)
+python NanoGUI/data/download_gui_datasets.py omniact --split train --split val
 
-Or download the main planner sources together:
+# Salesforce Grounding (combined sources)
+python NanoGUI/data/download_gui_datasets.py salesforce_grounding --split train
 
-```bash
-python NanoGUI/data/download_planner_datasets.py all --no-images --skip-online
-```
-
-Large OS-Atlas annotations:
-
-```bash
+# OS-Atlas annotations only (JSON first, images are huge)
 python NanoGUI/data/download_gui_datasets.py os_atlas --os-atlas-subset annotations
 ```
 
-`OS-Copilot/OS-Atlas-data` is very large if you include image archives. The
-script intentionally downloads JSON/metadata patterns first so you can inspect
-the files before pulling hundreds of GB of images.
+### Planner Trajectory Downloader
 
-## Local Output Format
+`download_planner_datasets.py` downloads trajectory data for planner training:
 
-Most datasets are normalized into:
+```bash
+# Individual datasets
+python NanoGUI/data/download_planner_datasets.py mind2web --no-images
+python NanoGUI/data/download_planner_datasets.py multimodal_mind2web
+python NanoGUI/data/download_planner_datasets.py aitw_single --max-samples 5000
+
+# All at once
+python NanoGUI/data/download_planner_datasets.py all --no-images --skip-online
+```
+
+### Verifier Dataset Builder
+
+`build_verifier_dataset.py` creates accept/reject training examples from grounding annotations:
+
+```bash
+python NanoGUI/data/build_verifier_dataset.py \
+  --data-dir ./datasets/screenspot \
+  --split test \
+  --negatives-per-positive 2 \
+  --render-overlays
+```
+
+This generates positive examples (click inside target bbox) and negative examples (click outside) for training the Critic verifier.
+
+## Output Format
+
+All datasets are normalized to:
 
 ```text
-data/<dataset>/
+datasets/<dataset_name>/
   images/
   annotations/
     <split>_annotations.json
     <split>_metadata.json
 ```
 
-Grounding annotations use these common fields when available:
+Grounding annotations contain:
 
 ```json
 {
   "instruction": "Click the search bar",
   "bbox": [0.1, 0.2, 0.4, 0.3],
-  "image_path": "data/screenspot/images/test_000000.png"
+  "image_path": "datasets/screenspot/images/test_000000.png"
 }
 ```
 
-Verifier annotations use:
+## Legacy Scripts
 
-```json
-{
-  "sub_goal": "Click the search bar",
-  "action_description": "Click at normalized coordinate (0.2500, 0.2500)",
-  "candidate_point": [0.25, 0.25],
-  "target_bbox": [0.1, 0.2, 0.4, 0.3],
-  "status": "success"
-}
-```
+- `scripts/download_datasets.py` — Simple ScreenSpot/SeeClick/ScreenSpot-v2 downloader (for backward compatibility)
+- `NanoGUI/data/download_omniact.py` — Standalone OmniAct downloader

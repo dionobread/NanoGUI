@@ -166,9 +166,9 @@ def build_examples(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build NanoGUI verifier data from grounding annotations.")
-    parser.add_argument("--data-dir", default="./data/screenspot", help="Local dataset directory.")
+    parser.add_argument("--data-dir", default="./datasets/screenspot", help="Local dataset directory.")
     parser.add_argument("--split", default="test", help="Annotation split to convert.")
-    parser.add_argument("--output-dir", default="./data/verifier", help="Directory for verifier annotations.")
+    parser.add_argument("--output-dir", default="./datasets/verifier", help="Directory for verifier annotations.")
     parser.add_argument("--negatives-per-positive", type=int, default=2)
     parser.add_argument("--render-overlays", action="store_true", help="Save screenshots with candidate click markers.")
     parser.add_argument("--seed", type=int, default=42)
