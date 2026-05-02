@@ -753,7 +753,7 @@ def run_config_b(
 
     # Phase 2: Grounding
     logger.info("Phase 2: Grounding %d sub-goals...", len(planned))
-    grounder = GrounderModel(model_grounder, mode)
+    grounder = GrounderModel(model_grounder)
     results: List[SampleResult] = []
     correct_count = 0
 
@@ -829,7 +829,7 @@ def run_config_c(
 
     # Phase 1: Grounding
     logger.info("Phase 1: Grounding %d samples...", len(samples))
-    grounder = GrounderModel(model_grounder, mode)
+    grounder = GrounderModel(model_grounder)
     grounded = []  # List of (sample, pred_x, pred_y, is_correct, image)
     correct_count = 0
 
@@ -978,7 +978,7 @@ def run_config_d(
 
     # Phase 2: Grounding
     logger.info("Phase 2: Grounding %d sub-goals...", len(planned))
-    grounder = GrounderModel(model_grounder, mode)
+    grounder = GrounderModel(model_grounder)
     grounded = []  # List of (sample, subgoal, pred_x, pred_y, is_correct, image)
     correct_count = 0
 
@@ -1219,7 +1219,7 @@ def run_config_f(
 
     # Phase 2: Grounding
     logger.info("Phase 2: Grounding %d enhanced instructions...", len(planned))
-    grounder = GrounderModel(model_grounder, mode)
+    grounder = GrounderModel(model_grounder)
     results: List[SampleResult] = []
     correct_count = 0
 

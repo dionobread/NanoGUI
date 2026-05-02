@@ -218,6 +218,7 @@ class PlannerDatasetSpec:
     trajectory_fields: tuple[str, ...]
     image_fields: tuple[str, ...] = ("image", "screenshot")
     notes: str = ""
+    load_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 PLANNER_DATASETS: dict[str, PlannerDatasetSpec] = {
